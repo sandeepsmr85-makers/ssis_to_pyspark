@@ -1121,7 +1121,7 @@ def test_referential_integrity(spark):
 
 ### Fields/Ports:
 ```json
-{json.dumps([vars(f) for f in transformation.fields], indent=2)}
+{json.dumps([{k:v for k,v in vars(f).items() if k not in ("sort_position","sort_descending","cast_type")} for f in transformation.fields], indent=2)}
 ```
 
 ### Properties:
@@ -1130,29 +1130,14 @@ def test_referential_integrity(spark):
 ```
 
 ### Type-Specific Info (EXTRACTED FROM DTSX — USE EXACTLY):
-- Filter Condition: {transformation.filter_condition or 'N/A'}
-- Join Condition: {transformation.join_condition or 'N/A'}
-- Join Type: {getattr(transformation, "join_type", "inner") or "inner"}
-- Num Key Columns: {getattr(transformation, "num_key_columns", 0)}
-- Lookup Condition: {transformation.lookup_condition or 'N/A'}
-- Lookup No-Match Behavior: {getattr(transformation, "lookup_no_match_behavior", "redirect")}
-- Lookup Reference SQL: {getattr(transformation, "lookup_reference_sql", "") or "N/A"}
 - SQL Query: {transformation.sql_query or 'N/A'}
-- Group By Columns: {transformation.group_by or []}
-- Sort Columns: {json.dumps(getattr(transformation, "sort_columns", []), indent=2) or "N/A"}
-- Output Branch Conditions (ConditionalSplit): {json.dumps(transformation.output_conditions, indent=2)}
-
-### Script Details (if applicable):
-- Script Language: {getattr(transformation, "script_language", "") or "N/A"}
-- Read-Only Variables: {getattr(transformation, "script_read_only_vars", "") or "N/A"}
-- Read-Write Variables: {getattr(transformation, "script_read_write_vars", "") or "N/A"}
-
-```csharp
-{transformation.script_code}
-```
-
-### Pre-Translated Expressions (SSIS → PySpark hints):
-{getattr(transformation, "expression_code", "") or "N/A"}
+- Group By Columns (Aggregate): {transformation.group_by or []}
+- Filter Condition: {transformation.filter_condition or 'N/A'}
+{("- Join Type: " + str(getattr(transformation, "join_type", "inner")) + "\n- Num Key Columns: " + str(getattr(transformation, "num_key_columns", 0)) + "\n- Join Condition: " + (transformation.join_condition or "N/A")) if transformation.type in ("MergeJoin","Merge") else ""}
+{("- Lookup Condition: " + (transformation.lookup_condition or "N/A") + "\n- Lookup No-Match Behavior: " + str(getattr(transformation, "lookup_no_match_behavior", "redirect")) + "\n- Lookup Reference SQL: " + (getattr(transformation, "lookup_reference_sql", "") or "N/A")) if transformation.type == "Lookup" else ""}
+{("- Sort Columns: " + json.dumps(getattr(transformation, "sort_columns", []), indent=2)) if transformation.type == "Sort" else ""}
+{("- Output Branch Conditions:\n" + json.dumps(transformation.output_conditions, indent=2)) if transformation.type == "ConditionalSplit" else ""}
+{("- Script Language: " + str(getattr(transformation, "script_language", "")) + "\n- Read-Only Variables: " + str(getattr(transformation, "script_read_only_vars", "")) + "\n- Script Code:\n```csharp\n" + (transformation.script_code or "# not available") + "\n```") if transformation.type == "Script" else ""}
 
 ## Task
 Generate clean, production-ready PySpark code that implements this transformation.
@@ -1606,14 +1591,11 @@ if __name__ == "__main__":
         
         sources_text = ', '.join([s.name for s in workflow.sources]) if workflow.sources else 'N/A'
         
-        # Load knowledge docs for Silver context
+        # Load knowledge docs for Silver context (focused set — avoid prompt bloat)
         variable_rules = self.llm.load_knowledge("variable_rules.md")
         connection_manager_rules = self.llm.load_knowledge("connection_manager_rules.md")
         silver_patterns = self.llm.load_knowledge("silver_layer_patterns.md")
-        # Previously unused — now wired in
-        env_references = self.llm.load_knowledge("ssis_reference/environment_references.md")
-        project_params = self.llm.load_knowledge("ssis_reference/project_parameters.md")
-        fabric_patterns = self.llm.load_knowledge("microsoft_fabric_patterns.md")
+        # Omit env_references, project_params, fabric_patterns here — already in system prompt
         transformation_rules = self.llm.load_knowledge("../transformation_rules.md")
         
         # Build variables context
@@ -1645,7 +1627,9 @@ if __name__ == "__main__":
             knowledge_section += f"\n## Connection Manager Rules Reference:\n{connection_manager_rules}\n"
         if silver_patterns:
             knowledge_section += f"\n## Silver Layer Patterns Reference:\n{silver_patterns}\n"
-        
+        if transformation_rules:
+            knowledge_section += f"\n## Transformation Rules:\n{transformation_rules}\n"
+
         package_analysis = self._load_package_analysis(workflow.name)
         if package_analysis:
             knowledge_section += package_analysis

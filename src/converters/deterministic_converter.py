@@ -176,7 +176,17 @@ def _gen_union_all(tx: "Transformation", mapping: "Mapping") -> str:
     ]
 
     if len(upstream) < 2:
-        return None  # can't generate without knowing the input DFs
+        # Fallback: generate generic 2-input union if connectors not available
+        return f"""
+def transform_{func_name}(df_a, df_b, *extra_dfs):
+    \"\"\"SSIS UnionAll: {tx.name} — combines multiple input streams.
+    Pass all input DataFrames as positional arguments.
+    \"\"\"
+    result = df_a.unionByName(df_b, allowMissingColumns=True)
+    for df in extra_dfs:
+        result = result.unionByName(df, allowMissingColumns=True)
+    return result
+""".strip()
 
     param_names = [_safe_name(u) + "_df" for u in upstream]
     params_str = ", ".join(param_names)
